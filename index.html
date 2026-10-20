@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Nepal Information Hub</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+  <div class="brand"><span class="logo" role="img" aria-label="Nepal Information Hub logo"><span class="ink"></span><img src="assets/logo-colour.png" alt=""></span>
+    <div class="brandtxt"><h1>Nepal Information Hub</h1>
+    <p class="tagline">A Macroeconomic Dashboard of the Nepalese Economy</p></div>
+  </div>
+  <div class="status">
+    <div class="fy" id="latestFy">Loading data…</div>
+    <div class="store"><span class="dot" id="storeDot"></span><span id="storeText">Connecting…</span></div>
+    <div class="themebox"><label for="thMode">Theme</label><select id="thMode"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option><option value="paper">Paper</option><option value="midnight">Midnight</option></select><select id="thAccent" aria-label="Accent colour"><option value="crimson">Crimson</option><option value="blue">Blue</option><option value="green">Green</option><option value="violet">Violet</option><option value="amber">Amber</option></select></div>
+  </div>
+</header>
+<div id="banner"></div>
+
+<nav class="tabs" role="tablist" id="tabs"></nav>
+<div class="labnav" id="labNav" hidden></div>
+
+<!-- OVERVIEW -->
+<section class="pane" id="p-ov">
+  <div class="kpis" id="kpis"></div>
+  <div class="card wide">
+    <div class="chead">
+      <div><h2>Indicator explorer</h2><p class="sub">Every series in Selected Macroeconomic Indicators (Table 1). New years you add appear here.</p></div>
+      <div class="ctrls"><select id="smiSel" aria-label="Indicator"></select>
+        <div class="seg" id="smiType"><button aria-pressed="true" data-v="bar">Bars</button><button aria-pressed="false" data-v="line">Line</button></div></div>
+    </div>
+    <div class="readout" id="smiRead"></div>
+    <div class="cv"><canvas id="cSmi"></canvas></div>
+    <p class="src">Source: NRB Table 1. Recent real-sector years are revised or preliminary estimates.</p>
+  </div>
+  <div class="grid2">
+    <div class="card">
+      <h2>Where the surplus comes from</h2>
+      <p class="sub">Workers' remittances and current-account balance, % of GDP</p>
+      <div class="cv"><canvas id="cRemCa"></canvas></div>
+      <p class="src">NRB Annex 13.</p>
+    </div>
+    <div class="card">
+      <h2>NRB liquidity, latest days</h2>
+      <p class="sub">Daily central bank survey, Rs billion. Add days under Data entry → NRB daily liquidity position.</p>
+      <div class="tbl"><table id="tDaily"></table></div>
+    </div>
+  </div>
+</section>
+
+<!-- GROWTH -->
+<section class="pane" id="p-real" hidden>
+  <div class="card wide">
+    <div class="chead">
+      <div><h2>Long-run GDP growth</h2><p class="sub">Annual % change since 1975/76</p></div>
+      <div class="seg" id="gdpLongMode"><button aria-pressed="true" data-v="real_g">Real</button><button aria-pressed="false" data-v="nom_g">Nominal</button></div>
+    </div>
+    <div class="cv"><canvas id="cGdpLong"></canvas></div>
+    <p class="src">NRB Annex 1. Base years change at 2000/01 and 2010/11. Contractions in red.</p>
+  </div>
+  <div class="grid2">
+    <div class="card">
+      <div class="chead">
+        <div><h2>Output by industry</h2><p class="sub" id="secSub"></p></div>
+        <div class="ctrls"><select id="secYear" aria-label="Fiscal year"></select>
+          <div class="seg" id="secMode"><button aria-pressed="true" data-v="share">Share of GVA</button><button aria-pressed="false" data-v="realg">Real growth</button></div></div>
+      </div>
+      <div class="cv tall"><canvas id="cSec"></canvas></div>
+      <p class="src">NRB Tables 2 and 3 (NSO).</p>
+    </div>
+    <div class="card">
+      <div class="chead">
+        <div><h2>Industry over time</h2><p class="sub">Gross value added, current prices, Rs billion</p></div>
+        <select id="secPick" aria-label="Industry"></select>
+      </div>
+      <div class="readout" id="secRead"></div>
+      <div class="cv"><canvas id="cSecTs"></canvas></div>
+      <h2 style="margin-top:6px">Income per person</h2>
+      <p class="sub">Nominal per-capita GDP, GNI and GNDI, US$</p>
+      <div class="cv short"><canvas id="cPc"></canvas></div>
+    </div>
+  </div>
+</section>
+
+<!-- PRICES -->
+<section class="pane" id="p-px" hidden>
+  <div class="kpis" id="kpisPx"></div>
+  <div class="grid2">
+    <div class="card">
+      <div class="chead">
+        <div><h2>Monthly inflation, last four fiscal years</h2><p class="sub">Year-on-year % change, mid-month</p></div>
+        <div class="seg" id="pxIdx"><button aria-pressed="true" data-v="cpi">CPI</button><button aria-pressed="false" data-v="wpi">WPI</button></div>
+      </div>
+      <div class="cv"><canvas id="cPxM"></canvas></div>
+      <p class="src">NRB Tables 11 and 15.</p>
+    </div>
+    <div class="card">
+      <div class="chead">
+        <div><h2>CPI by group</h2><p class="sub" id="grpSub"></p></div>
+        <div class="ctrls"><div class="seg" id="grpFilt"><button aria-pressed="true" data-v="all">All</button><button aria-pressed="false" data-v="A">Food</button><button aria-pressed="false" data-v="B">Non-food</button></div>
+        <div class="seg" id="grpArea"><button aria-pressed="true" data-v="national">National</button><button aria-pressed="false" data-v="rural">Rural</button><button aria-pressed="false" data-v="urban">Urban</button></div></div>
+      </div>
+      <div class="cv tall"><canvas id="cGrp"></canvas></div>
+      <p class="src">NRB Table 8(B). Hover a bar for its basket weight.</p>
+    </div>
+    <div class="card">
+      <div class="chead">
+        <div><h2>Inflation by province</h2><p class="sub" id="provSub"></p></div>
+        <div class="seg" id="provMode"><button aria-pressed="true" data-v="overall">Overall</button><button aria-pressed="false" data-v="food">Food</button><button aria-pressed="false" data-v="nonfood">Non-food</button></div>
+      </div>
+      <div class="cv"><canvas id="cProv"></canvas></div>
+      <p class="src">NRB Table 9.</p>
+    </div>
+    <div class="card">
+      <h2>Wage growth by industry</h2>
+      <p class="sub" id="swiSub"></p>
+      <div class="cv"><canvas id="cSwi"></canvas></div>
+      <p class="src">NRB Table 17.</p>
+    </div>
+  </div>
+</section>
+
+<!-- EXTERNAL -->
+<section class="pane" id="p-ext" hidden>
+  <div class="kpis" id="kpisExt"></div>
+  <div class="grid2">
+    <div class="card">
+      <div class="chead">
+        <div><h2>Foreign exchange reserves</h2><p class="sub" id="resSub"></p></div>
+        <div class="seg" id="resMode"><button aria-pressed="true" data-v="usd">US$ million</button><button aria-pressed="false" data-v="mon">Import months</button></div>
+      </div>
+      <div class="cv"><canvas id="cRes"></canvas></div>
+      <p class="src">NRB Annex 14.1, mid-month.</p>
+    </div>
+    <div class="card">
+      <h2>Rupee per US dollar</h2>
+      <p class="sub">Monthly average middle rate</p>
+      <div class="cv"><canvas id="cFx"></canvas></div>
+      <p class="src">NRB Table 39.</p>
+    </div>
+    <div class="card">
+      <div class="chead">
+        <div><h2>Merchandise trade since 1974/75</h2><p class="sub" id="trSub"></p></div>
+        <div class="seg" id="trMode"><button aria-pressed="true" data-v="gdp">% of GDP</button><button aria-pressed="false" data-v="rs">Rs billion</button></div>
+      </div>
+      <div class="cv"><canvas id="cTrade"></canvas></div>
+      <p class="src">NRB Annex 11 (customs data).</p>
+    </div>
+    <div class="card">
+      <div class="chead">
+        <div><h2>Top traded goods</h2><p class="sub" id="topSub"></p></div>
+        <div class="ctrls"><select id="topYear" aria-label="Fiscal year"></select>
+        <div class="seg" id="topMode"><button aria-pressed="true" data-v="Export">Exports</button><button aria-pressed="false" data-v="Import">Imports</button></div></div>
+      </div>
+      <div class="cv tall"><canvas id="cTop"></canvas></div>
+      <p class="src">NRB Tables 21 and 25, Rs billion.</p>
+    </div>
+    <div class="card">
+      <h2>Trade by partner</h2>
+      <p class="sub">Rs billion, last three fiscal years</p>
+      <div class="cv"><canvas id="cPartner"></canvas></div>
+      <p class="src">NRB Table 20.</p>
+    </div>
+    <div class="card">
+      <h2>Balance of payments</h2>
+      <p class="sub">Net flows, Rs billion</p>
+      <div class="tbl"><table id="tBop"></table></div>
+      <p class="src">NRB Table 35 (A.1).</p>
+    </div>
+    <div class="card">
+      <div class="chead">
+        <div><h2>Labour permits by destination</h2><p class="sub">Number of workers</p></div>
+        <div class="ctrls"><div class="seg" id="migType"><button aria-pressed="true" data-v="new">New</button><button aria-pressed="false" data-v="renew">Renewed</button></div>
+        <select id="migYear" aria-label="Fiscal year"></select></div>
+      </div>
+      <div class="readout" id="migRead"></div>
+      <div class="cv tall"><canvas id="cMig"></canvas></div>
+      <p class="src">NRB Table 33 (Department of Foreign Employment).</p>
+    </div>
+    <div class="card">
+      <div class="chead">
+        <div><h2>Tourist arrivals by month</h2><p class="sub">Latest two years against a year you choose</p></div>
+        <select id="tourYears" aria-label="Compare with year"></select>
+      </div>
+      <div class="cv"><canvas id="cTour"></canvas></div>
+      <p class="src">NRB Table 34 (Nepal Tourism Board).</p>
+    </div>
+  </div>
+</section>
+
+<!-- FISCAL -->
+<section class="pane" id="p-fis" hidden>
+  <div class="kpis" id="kpisFis"></div>
+  <div class="grid2">
+    <div class="card">
+      <div class="chead">
+        <div><h2>Public debt</h2><p class="sub" id="debtSub"></p></div>
+        <div class="seg" id="debtMode"><button aria-pressed="true" data-v="gdp">% of GDP</button><button aria-pressed="false" data-v="rs">Rs billion</button></div>
+      </div>
+      <div class="cv"><canvas id="cDebt"></canvas></div>
+      <p class="src">NRB Annex 20 (PDMO).</p>
+    </div>
+    <div class="card">
+      <h2>Fiscal balances</h2>
+      <p class="sub">% of GDP</p>
+      <div class="cv"><canvas id="cBal"></canvas></div>
+      <p class="src">NRB Table 44(A).</p>
+    </div>
+    <div class="card">
+      <h2>Revenue by source</h2>
+      <p class="sub">Rs billion, last three fiscal years</p>
+      <div class="cv"><canvas id="cRev"></canvas></div>
+      <p class="src">NRB Table 42 (MoF).</p>
+    </div>
+    <div class="card">
+      <h2>Where spending went</h2>
+      <p class="sub">Federal expenditure, Rs billion</p>
+      <div class="cv"><canvas id="cExp"></canvas></div>
+      <p class="src">NRB Table 44(A).</p>
+    </div>
+  </div>
+</section>
+
+<!-- BANKING -->
+<section class="pane" id="p-bank" hidden>
+  <div class="kpis" id="kpisBank"></div>
+  <div class="grid2">
+    <div class="card">
+      <div class="chead"><div><h2>Interest rates</h2><p class="sub">Commercial banks, % per annum</p></div>
+      <select id="rateRange" aria-label="Period"><option value="120">10 years</option><option value="60">5 years</option><option value="24">2 years</option><option value="9999">All</option></select></div>
+      <div class="cv"><canvas id="cRates"></canvas></div>
+      <p class="src">NRB Annex 24.</p>
+    </div>
+    <div class="card">
+      <div class="chead"><div><h2>Non-performing loans</h2><p class="sub">NPL / total loans, %, quarter end (BS)</p></div>
+      <div class="seg" id="nplMode"><button aria-pressed="true" data-v="agg">All BFIs</button><button aria-pressed="false" data-v="cls">By class</button></div></div>
+      <div class="cv"><canvas id="cNpl"></canvas></div>
+      <p class="src">NRB BFS Table I.</p>
+    </div>
+    <div class="card">
+      <div class="chead"><div><h2>Lending by sector</h2><p class="sub" id="scSub"></p></div>
+      <div class="seg" id="scMode"><button aria-pressed="true" data-v="lvl">Outstanding</button><button aria-pressed="false" data-v="g">Growth</button></div></div>
+      <div class="cv tall"><canvas id="cSc"></canvas></div>
+      <p class="src">NRB Table 52.</p>
+    </div>
+    <div class="card">
+      <div class="chead"><div><h2>Balance-sheet ratios</h2><p class="sub">A, B and C class BFIs, monthly</p></div>
+      <select id="ratioSel" aria-label="Ratio"></select></div>
+      <div class="cv"><canvas id="cRatio"></canvas></div>
+      <p class="src">NRB BFS Tables A–C.</p>
+    </div>
+    <div class="card wide">
+      <h2>Major financial indicators by class</h2>
+      <p class="sub" id="mfiSub"></p>
+      <div class="tbl"><table id="tMfi"></table></div>
+    </div>
+  </div>
+</section>
+
+<!-- PAYMENTS -->
+<section class="pane" id="p-pay" hidden>
+  <div class="kpis" id="kpisPay"></div>
+  <div class="card wide">
+    <div class="chead">
+      <div><h2>Electronic payment channels</h2><p class="sub" id="epSub"></p></div>
+      <div class="ctrls">
+        <div class="seg" id="epMeas"><button aria-pressed="true" data-v="n">Transactions</button><button aria-pressed="false" data-v="v">Value</button></div>
+        <select id="epSet" aria-label="Channel group">
+          <option value="retail">Wallet, QR, mobile banking, FPS</option>
+          <option value="cards">Cards, POS, e-commerce</option>
+          <option value="inter">RTGS, IPS, ECC, ATM</option>
+        </select>
+      </div>
+    </div>
+    <div class="cv"><canvas id="cEp"></canvas></div>
+    <p class="src">NRB Table 69, monthly (mid-month to mid-month). Wallet covers PSPs other than BFIs.</p>
+  </div>
+  <div class="grid2">
+    <div class="card">
+      <div class="chead"><div><h2>Channel mix</h2><p class="sub">Share of all channels in a fiscal year</p></div>
+      <div class="ctrls"><select id="mixFy" aria-label="Fiscal year"></select><div class="seg" id="mixMeas"><button aria-pressed="true" data-v="n">Transactions</button><button aria-pressed="false" data-v="v">Value</button></div></div></div>
+      <div class="cv tall"><canvas id="cMix"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>Digital banking reach</h2>
+      <p class="sub">Customers and accounts at A, B, C class BFIs, million (mid-July)</p>
+      <div class="cv"><canvas id="cAccess"></canvas></div>
+      <p class="src">NRB BFS Table C.</p>
+    </div>
+  </div>
+</section>
+
+<!-- COMPARE -->
+<section class="pane" id="p-cmp" hidden></section>
+<!-- QUANT -->
+<section class="pane" id="p-quant" hidden></section>
+<section class="pane" id="p-study" hidden></section>
+<section class="pane" id="p-opt" hidden></section>
+<!-- IMPORT -->
+<section class="pane" id="p-imp" hidden></section>
+<!-- DATA -->
+<section class="pane" id="p-data" hidden></section>
+<!-- ENTRY -->
+<section class="pane" id="p-entry" hidden></section>
+<!-- STOCK -->
+<section class="pane" id="p-news" hidden></section>
+
+<section class="pane" id="p-sem" hidden></section>
+
+<section class="pane" id="p-analysis" hidden></section>
+
+<section class="pane" id="p-fg" hidden></section>
+
+<section class="pane" id="p-stock" hidden></section>
+
+<footer><div id="siteSources">Sources: NRB · MoF · NSO · NEPSE</div><div class="credit">© <span id="cYear">2026</span> Maddati Tech Pvt. Ltd. All rights reserved. · Developed by <a href="https://www.maddatitech.com.np/" target="_blank" rel="noopener">Maddati Tech</a></div></footer>
+</div>
+<div id="modalRoot"></div>
+<script src="assets/chart.umd.js"></script>
+<script src="assets/xlsx.full.min.js"></script>
+<script src="data/seed.js"></script>
+<script src="assets/quant-core.js"></script>
+<script src="assets/ta-core.js"></script>
+<script src="assets/stock.js"></script>
+<script src="assets/quant.js"></script>
+<script src="assets/import.js"></script>
+<script src="assets/text.js"></script>
+<script src="assets/news.js"></script>
+<script src="assets/sem.js"></script>
+<script src="assets/stats-core.js"></script>
+<script src="assets/ts-models.js"></script>
+<script src="assets/ml.js"></script>
+<script src="assets/fin-core.js"></script>
+<script src="assets/qf-core.js"></script>
+<script src="assets/research-core.js"></script>
+<script src="assets/opt-core.js"></script>
+<script src="assets/analysis.js"></script>
+<script src="assets/stockq.js"></script>
+<script src="assets/othermod.js"></script>
+<script src="assets/feargreed.js"></script>
+<script src="assets/pdf.min.js"></script>
+<script src="assets/nepali.js"></script>
+<script src="assets/reports.js"></script>
+<script src="assets/nepal-geo.js"></script>
+<script src="assets/sectorval.js"></script>
+<script src="assets/research.js"></script>
+<script src="assets/optlab.js"></script>
+<script src="assets/site.js"></script>
+<script src="assets/github.js"></script>
+<script src="assets/market.js"></script>
+<script src="assets/content.js"></script>
+<script src="assets/broker.js"></script>
+<script src="assets/nrb-ingest.js"></script>
+<script src="assets/chat.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

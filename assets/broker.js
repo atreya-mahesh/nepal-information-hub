@@ -1,0 +1,128 @@
+/* Nepal Information Hub — floorsheet broker analysis.
+   Admin uploads NEPSE floorsheets (SN, Contract No., [Symbol], Buyer, Seller, Quantity, Rate, Amount); each upload is kept
+   as a compact JSON file and indexed in Store.db.floor. Users see broker-to-broker money flows as a Sankey diagram
+   (Buyer → Seller, or Buyer → Stock → Seller), broker net positions, concentration and top pairs. */
+'use strict';
+const BK = {dates: null, sym: '', mode: 'bs', measure: 'a', topN: 12, cache: new Map(), hi: null};
+const bkName = no => { const m = Store.db.site?.brokers || {}; return m[no] ? `${no} · ${m[no]}` : `Broker ${no}`; };
+/* ---------- parsing (admin) ---------- */
+function bkParse(aoa, fileName) {
+  let H = -1, ix = {};
+  for (let i = 0; i < Math.min(25, aoa.length); i++) { const h = (aoa[i] || []).map(c => String(c ?? '').toLowerCase().replace(/\s+/g, ' ').trim()), f = (...re) => h.findIndex(x => re.some(r => r.test(x)));
+    const b = f(/buyer/, /^buy(ing)? ?(broker|member)/), s = f(/seller/, /^sell(ing)? ?(broker|member)/), q = f(/^qty$|quantity|^units?$|share ?quantity/), a = f(/amount|^value|turn ?over/);
+    if (b >= 0 && s >= 0 && q >= 0) { H = i; ix = {sn: f(/^s\.? ?n\.?$|^sn$|^s ?no\.?$|^#$/), c: f(/contract/), sym: f(/symbol|scrip|script|stock|company/), b, s, q, r: f(/rate|price/), a}; break; } }
+  if (H < 0) throw new Error('No floorsheet header found. Columns needed: Buyer, Seller, Quantity (plus Contract No., Rate, Amount; Symbol optional).');
+  const num = v => typeof v === 'number' ? v : (() => { const x = parseFloat(String(v ?? '').replace(/[, ]/g, '')); return isFinite(x) ? x : null; })();
+  const brk = v => { const t = String(v ?? '').trim(), m = /^(\d{1,3})\b\s*[-–:.]?\s*(.*)$/.exec(t); return m ? {no: String(+m[1]), name: m[2].trim()} : (t ? {no: t, name: ''} : null); };
+  const rows = [], names = {}; let bad = 0;
+  for (const r of aoa.slice(H + 1)) { const b = brk(r[ix.b]), s = brk(r[ix.s]), q = num(r[ix.q]); if (!b || !s || !isNum(q) || q <= 0) { if (r.some(c => c !== null && c !== '')) bad++; continue; }
+    let rate = ix.r >= 0 ? num(r[ix.r]) : null, amt = ix.a >= 0 ? num(r[ix.a]) : null; if (!isNum(amt) && isNum(rate)) amt = rate * q; if (!isNum(rate) && isNum(amt)) rate = amt / q;
+    if (b.name) names[b.no] = b.name; if (s.name) names[s.no] = s.name;
+    rows.push([ix.c >= 0 ? String(r[ix.c] ?? '').trim() : '', ix.sym >= 0 ? String(r[ix.sym] ?? '').trim().toUpperCase() : '', b.no, s.no, q, isNum(rate) ? +rate.toFixed(2) : null, isNum(amt) ? +amt.toFixed(2) : null]); }
+  if (!rows.length) throw new Error('The floorsheet has a header but no valid trade rows.');
+  // date from contract numbers (NEPSE contract numbers start with YYYYMMDD) or from the file name
+  const cd = rows.map(r => /^(20\d{2})(\d{2})(\d{2})\d{4,}/.exec(r[0])).filter(Boolean).map(m => `${m[1]}-${m[2]}-${m[3]}`).filter(d => !isNaN(new Date(d))), fm = /(20\d{2})[-_.]?(\d{2})[-_.]?(\d{2})/.exec(fileName || '');
+  const counts = {}; cd.forEach(d => counts[d] = (counts[d] || 0) + 1); const dGuess = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0] || (fm ? `${fm[1]}-${fm[2]}-${fm[3]}` : '');
+  const symGuess = ix.sym >= 0 ? '' : ((/^([A-Z][A-Z0-9]{1,9})(?=[ _.-])/.exec((fileName || '').toUpperCase()) || [])[1] || '');
+  return {rows, names, bad, date: dGuess, hasSym: ix.sym >= 0, symGuess, header: H};
+}
+const FLA = {pending: null};
+function renderFloorAdmin() {
+  const p = $('#p-afloor'), idx = Store.db.floor, brokers = Store.db.site.brokers;
+  p.innerHTML = `<div class="card wide"><h2>Floorsheet upload (broker analysis)</h2><p class="sub">Upload a NEPSE floorsheet (Excel or CSV) with columns <code>SN, Contract No., Buyer, Seller, Quantity, Rate, Amount</code> — add <code>Symbol</code> when one file holds many stocks. Users then see broker-to-broker flows as a Sankey diagram under <b>Stock market › Broker analysis</b>. The trading date is read from the contract numbers (they begin with YYYYMMDD) or the file name; check it below.</p>
+    <div class="form" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))"><div class="f" style="grid-column:span 2"><label for="flFile">Floorsheet file(s)</label><input id="flFile" type="file" multiple accept=".xlsx,.xls,.csv,.txt"></div><div class="f"><label>&nbsp;</label><button class="btn small" id="flTpl">Download template</button></div></div>
+    <div id="flPend"></div></div>
+    <div class="card wide"><div class="chead"><h2>Uploaded floorsheets (${idx.length})</h2><div class="ctrls"><a class="btn small" href="index.html#stk-broker" target="_blank" rel="noopener">View on user dashboard ↗</a></div></div>${idx.length ? `<div class="tbl"><table><thead><tr><th class="txt">Date</th><th class="txt">Stocks</th><th>Trades</th><th>Quantity</th><th>Amount (Rs)</th><th class="txt">Source file</th><th>Actions</th></tr></thead><tbody>${idx.slice().sort((a, b) => b.date.localeCompare(a.date)).map(x => `<tr><td class="txt">${esc(x.date)}</td><td class="txt">${esc((x.symbols || []).slice(0, 6).join(', '))}${x.nsym > 6 ? ` +${x.nsym - 6}` : ''}</td><td class="num">${fmt(x.trades, 0)}</td><td class="num">${fmt(x.qty, 0)}</td><td class="num">${fmt(x.amount, 0)}</td><td class="txt">${esc(x.source || '')}</td><td><button class="btn small danger" data-fd="${esc(x.id)}">Delete</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No floorsheets yet.</div>'}</div>
+    <div class="card wide"><h2>Broker names</h2><p class="sub">One per line: <code>number, name</code>. Names found in uploaded files (e.g. “58 - XYZ Securities”) are added automatically. Shown in the Sankey and tables.</p><textarea id="flNames" rows="8" style="width:100%;font-family:var(--mono);font-size:12px">${esc(Object.entries(brokers).sort((a, b) => +a[0] - +b[0]).map(([k, v]) => k + ', ' + v).join('\n'))}</textarea><div class="actions"><button class="btn" id="flNameSave">Save names</button><span id="flNMsg"></span></div></div>`;
+  $('#flTpl').onclick = () => { const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['SN', 'Contract No.', 'Symbol', 'Buyer', 'Seller', 'Quantity', 'Rate', 'Amount'], [1, '', '', '', '', '', '', '']]), 'Floorsheet'); XLSX.writeFile(wb, 'Floorsheet_Template.xlsx'); };
+  $('#flFile').onchange = async e => { const fs = [...e.target.files]; FLA.pending = []; for (const f of fs) { try { const sh = await parseFileBuffer(f.name, await f.arrayBuffer()), aoa = sh.find(x => x.aoa && x.aoa.length > 1)?.aoa; if (!aoa) throw new Error('No data sheet.'); FLA.pending.push({f, ...bkParse(aoa, f.name)}); } catch (er) { FLA.pending.push({f, err: er.message}); } } drawFloorPending(); };
+  $('#flNameSave').onclick = async () => { const m = {}; $('#flNames').value.split('\n').forEach(l => { const [a, ...b] = l.split(/[,\t]/); const k = String(parseInt(a, 10)); if (k !== 'NaN' && b.join(',').trim()) m[k] = b.join(',').trim(); }); Store.db.site.brokers = m; await persist(true); msg('#flNMsg', Object.keys(m).length + ' names saved', 'ok'); };
+  p.querySelectorAll('[data-fd]').forEach(b => b.onclick = async () => { const x = idx.find(y => y.id === b.dataset.fd); if (!(await confirmBox('Delete this floorsheet?', `${esc(x.date)} · ${fmt(x.trades, 0)} trades`, 'Delete'))) return; await Files.del(x.file); idx.splice(idx.indexOf(x), 1); BK.cache.delete(x.id); await persist(true); renderFloorAdmin(); });
+}
+function drawFloorPending() {
+  const box = $('#flPend'); if (!FLA.pending?.length) { box.innerHTML = ''; return; }
+  box.innerHTML = FLA.pending.map((x, i) => x.err ? `<div class="banner">${esc(x.f.name)}: ${esc(x.err)}</div>` : `<div class="blk"><b>${esc(x.f.name)}</b> — ${fmt(x.rows.length, 0)} trades${x.bad ? `, ${x.bad} rows skipped` : ''}${x.hasSym ? `, ${uniq(x.rows.map(r => r[1])).length} stocks` : ''}
+    <div class="form" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-top:6px"><div class="f"><label>Trading date</label><input type="date" data-fdate="${i}" value="${esc(x.date)}"></div>${x.hasSym ? '' : `<div class="f"><label>Stock symbol (file has no Symbol column)</label><input data-fsym="${i}" value="${esc(x.symGuess)}" placeholder="e.g. NABIL"></div>`}</div></div>`).join('') + `<div class="actions"><button class="btn primary" id="flGo">Save floorsheet(s)</button><span id="flMsg"></span></div>`;
+  $('#flGo').onclick = async () => { const ok = FLA.pending.filter(x => !x.err); msg('#flMsg', 'Saving…');
+    try { for (const x of ok) { const i = FLA.pending.indexOf(x), date = box.querySelector(`[data-fdate="${i}"]`).value, symIn = box.querySelector(`[data-fsym="${i}"]`); if (!date) throw new Error(x.f.name + ': set the trading date.');
+        const sym = symIn ? symIn.value.trim().toUpperCase() : ''; if (!x.hasSym && !sym) throw new Error(x.f.name + ': give the stock symbol.'); if (!x.hasSym) x.rows.forEach(r => r[1] = sym);
+        Object.entries(x.names).forEach(([k, v]) => { if (!Store.db.site.brokers[k]) Store.db.site.brokers[k] = v; });
+        const syms = {}; let qty = 0, amt = 0; x.rows.forEach(r => { syms[r[1]] = (syms[r[1]] || 0) + (r[6] || 0); qty += r[4]; amt += r[6] || 0; });
+        const meta = await Files.put(new Blob([JSON.stringify({v: 1, date, cols: ['contract', 'symbol', 'buyer', 'seller', 'qty', 'rate', 'amount'], rows: x.rows})], {type: 'application/json'}), `floorsheet-${date}${x.hasSym ? '' : '-' + sym}.json`);
+        Store.db.floor.push({id: uid('f'), date, symbols: Object.keys(syms).sort((a, b) => syms[b] - syms[a]), nsym: Object.keys(syms).length, trades: x.rows.length, qty, amount: amt, file: meta, source: x.f.name, added: new Date().toISOString()}); }
+      logChange('Uploaded floorsheet', 'stock_ohlc', ok.map(x => x.f.name).join(', ')); await persist(true); FLA.pending = null; renderFloorAdmin(); toast(ok.length + ' floorsheet(s) saved'); } catch (e) { msg('#flMsg', e.message, 'err'); } };
+}
+/* ---------- loading & aggregation (user) ---------- */
+async function bkLoad(entries) { const out = []; for (const x of entries) { if (!BK.cache.has(x.id)) { const b = await Files.blob(x.file); BK.cache.set(x.id, JSON.parse(await b.text())); } const j = BK.cache.get(x.id); j.rows.forEach(r => out.push({date: x.date, c: r[0], sym: r[1], b: r[2], s: r[3], q: r[4], r: r[5], a: r[6] ?? (r[4] * (r[5] || 0))})); } return out; }
+function bkStats(T) {
+  const tot = {a: 0, q: 0, n: T.length}, br = new Map(), pair = new Map(), sym = new Map(), g = (m, k, init) => { if (!m.has(k)) m.set(k, init()); return m.get(k); };
+  for (const t of T) { tot.a += t.a; tot.q += t.q;
+    const B = g(br, t.b, () => ({no: t.b, ba: 0, bq: 0, bn: 0, sa: 0, sq: 0, sn: 0})), S = g(br, t.s, () => ({no: t.s, ba: 0, bq: 0, bn: 0, sa: 0, sq: 0, sn: 0})); B.ba += t.a; B.bq += t.q; B.bn++; S.sa += t.a; S.sq += t.q; S.sn++;
+    const P = g(pair, t.b + '→' + t.s, () => ({b: t.b, s: t.s, a: 0, q: 0, n: 0})); P.a += t.a; P.q += t.q; P.n++;
+    const Y = g(sym, t.sym, () => ({sym: t.sym, a: 0, q: 0, n: 0, buy: new Map(), sell: new Map()})); Y.a += t.a; Y.q += t.q; Y.n++; Y.buy.set(t.b, (Y.buy.get(t.b) || 0) + t.a); Y.sell.set(t.s, (Y.sell.get(t.s) || 0) + t.a); }
+  const brokers = [...br.values()].map(x => ({...x, net: x.ba - x.sa, netq: x.bq - x.sq, gross: x.ba + x.sa, avgB: x.bq ? x.ba / x.bq : null, avgS: x.sq ? x.sa / x.sq : null, share: tot.a ? (x.ba + x.sa) / (2 * tot.a) : 0})).sort((a, b) => b.gross - a.gross);
+  const hhi = side => brokers.reduce((s, x) => s + ((side === 'b' ? x.ba : x.sa) / tot.a) ** 2, 0) * 1e4, top5 = side => brokers.map(x => side === 'b' ? x.ba : x.sa).sort((a, b) => b - a).slice(0, 5).reduce((a, b) => a + b, 0) / tot.a;
+  const crossed = T.filter(t => t.b === t.s).reduce((s, t) => s + t.a, 0);
+  const syms = [...sym.values()].map(y => { const tb = [...y.buy.entries()].sort((a, b) => b[1] - a[1])[0], ts = [...y.sell.entries()].sort((a, b) => b[1] - a[1])[0]; return {sym: y.sym, a: y.a, q: y.q, n: y.n, vwap: y.q ? y.a / y.q : null, tb: tb?.[0], tbs: tb ? tb[1] / y.a : 0, ts: ts?.[0], tss: ts ? ts[1] / y.a : 0, nb: y.buy.size, ns: y.sell.size}; }).sort((a, b) => b.a - a.a);
+  return {tot, brokers, pairs: [...pair.values()].sort((a, b) => b.a - a.a), syms, hhiB: hhi('b'), hhiS: hhi('s'), top5B: top5('b'), top5S: top5('s'), crossed};
+}
+/* ---------- Sankey (multi-layer, drawn as SVG) ---------- */
+function sankeySvg(el, paths, {layers, topN = 12, valFmt = v => fmt(v, 0), names = [], onNode = null, hi = null} = {}) {
+  const L = layers.length, t = T(), tot = paths.reduce((s, p) => s + p.v, 0); if (!tot) { el.innerHTML = '<p class="sub">No flows for this selection.</p>'; return; }
+  const keep = []; for (let l = 0; l < L; l++) { const m = new Map(); paths.forEach(p => m.set(p.n[l], (m.get(p.n[l]) || 0) + p.v)); keep.push(new Set([...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, topN).map(e => e[0]))); }
+  const nodeKey = (l, n) => l + '|' + (keep[l].has(n) ? n : '__other'), nodes = new Map(), links = new Map();
+  paths.forEach(p => { for (let l = 0; l < L; l++) { const k = nodeKey(l, p.n[l]); if (!nodes.has(k)) nodes.set(k, {k, l, id: keep[l].has(p.n[l]) ? p.n[l] : '__other', in: 0, out: 0}); }
+    for (let l = 0; l < L - 1; l++) { const a = nodeKey(l, p.n[l]), b = nodeKey(l + 1, p.n[l + 1]), lk = a + '>' + b; if (!links.has(lk)) links.set(lk, {a, b, v: 0}); links.get(lk).v += p.v; nodes.get(a).out += p.v; nodes.get(b).in += p.v; } });
+  const W = Math.max(640, el.clientWidth || 900), H = Math.max(420, Math.min(900, 26 * Math.max(...[...Array(L).keys()].map(l => [...nodes.values()].filter(n => n.l === l).length)) + 60)), padY = 6, nodeW = 14, mL = 200, mR = 200, colX = l => mL + (W - mL - mR - nodeW) * (L === 1 ? 0 : l / (L - 1));
+  const cols = [...Array(L).keys()].map(l => [...nodes.values()].filter(n => n.l === l).sort((a, b) => (a.id === '__other') - (b.id === '__other') || Math.max(b.in, b.out) - Math.max(a.in, a.out)));
+  const k = Math.min(...cols.map(c => (H - 40 - padY * (c.length - 1)) / c.reduce((s, n) => s + Math.max(n.in, n.out), 0)));
+  cols.forEach(c => { let y = 20; c.forEach(n => { n.x = colX(n.l); n.y = y; n.h = Math.max(1, Math.max(n.in, n.out) * k); n.oy = n.y; n.iy = n.y; y += n.h + padY; }); });
+  const lks = [...links.values()].sort((a, b) => nodes.get(a.a).y - nodes.get(b.a).y || nodes.get(a.b).y - nodes.get(b.b).y);
+  const label = n => n.id === '__other' ? 'Others' : (names[n.l] ? names[n.l](n.id) : n.id), colr = n => n.id === '__other' ? t.ink3 : t.s[[...keep[n.l]].indexOf(n.id) % 8];
+  const lsvg = lks.map(lk => { const A = nodes.get(lk.a), B = nodes.get(lk.b), w = Math.max(0.6, lk.v * k), y0 = A.oy + w / 2, y1 = B.iy + w / 2; A.oy += lk.v * k; B.iy += lk.v * k; const x0 = A.x + nodeW, x1 = B.x, xm = (x0 + x1) / 2;
+    const on = !hi || A.k === hi || B.k === hi; return `<path d="M${x0},${y0} C${xm},${y0} ${xm},${y1} ${x1},${y1}" fill="none" stroke="${colr(A)}" stroke-opacity="${on ? 0.42 : 0.06}" stroke-width="${w.toFixed(2)}"><title>${esc(label(A))} → ${esc(label(B))}: ${valFmt(lk.v)} (${(lk.v / tot * 100).toFixed(1)}%)</title></path>`; }).join('');
+  const nsvg = [...nodes.values()].map(n => `<g class="sknode" data-k="${esc(n.k)}" style="cursor:pointer"><rect x="${n.x}" y="${n.y}" width="${nodeW}" height="${n.h.toFixed(2)}" fill="${colr(n)}" rx="2"><title>${esc(label(n))}: ${valFmt(Math.max(n.in, n.out))} (${(Math.max(n.in, n.out) / tot * 100).toFixed(1)}%)</title></rect>
+    <text x="${n.l === 0 ? n.x - 6 : n.x + nodeW + 6}" y="${n.y + n.h / 2}" dy="0.35em" text-anchor="${n.l === 0 ? 'end' : 'start'}" font-size="11" fill="${t.ink2}">${esc(label(n).length > 24 ? label(n).slice(0, 23) + '…' : label(n))} · ${(Math.max(n.in, n.out) / tot * 100).toFixed(1)}%</text></g>`).join('');
+  const heads = layers.map((h, l) => `<text x="${colX(l) + nodeW / 2}" y="12" text-anchor="middle" font-size="11" font-weight="600" fill="${t.ink3}">${esc(h)}</text>`).join('');
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" role="img" aria-label="Sankey diagram of ${esc(layers.join(' to '))} flows">${heads}${lsvg}${nsvg}</svg>`;
+  if (onNode) el.querySelectorAll('.sknode').forEach(g => g.onclick = () => onNode(g.dataset.k));
+}
+async function renderBroker() {
+  const b = $('#stockBody'), idx = (Store.db.floor || []).slice().sort((x, y) => y.date.localeCompare(x.date)), dates = uniq(idx.map(x => x.date));
+  if (!idx.length) { b.innerHTML = `<div class="card wide"><h2>Broker analysis</h2><div class="empty">No floorsheets published yet.${IS_ADMIN ? '' : ' They are uploaded from the admin dashboard (Data › Floorsheet).'}<p class="sub">Each trade in a floorsheet (SN, Contract No., Buyer, Seller, Quantity, Rate, Amount) links a buying broker to a selling broker; this page turns them into a Sankey diagram, net positions and concentration measures.</p></div></div>`; return; }
+  if (!BK.dates || !BK.dates.every(d => dates.includes(d))) BK.dates = [dates[0]];
+  b.innerHTML = `<div class="card wide"><div class="chead"><div><h2>Broker analysis</h2><p class="sub">Money flow from buying brokers to selling brokers, from NEPSE floorsheets. Pick one or more trading days, a stock, and the view. Click a broker in the diagram to highlight its flows.</p></div></div>
+    <div class="form" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
+      <div class="f" style="grid-column:span 2"><label>Trading days</label><div class="opchk" id="bkDates">${dates.slice(0, 60).map(d => `<label><input type="checkbox" value="${d}" ${BK.dates.includes(d) ? 'checked' : ''}> ${d}</label>`).join('')}</div></div>
+      <div class="f"><label for="bkSym">Stock</label><select id="bkSym"><option value="">All stocks</option></select></div>
+      <div class="f"><label for="bkMode">Diagram</label><select id="bkMode"><option value="bs">Buyer → Seller</option><option value="bys">Buyer → Stock → Seller</option><option value="yb">Stock → Buyer</option><option value="ys">Seller → Stock</option></select></div>
+      <div class="f"><label for="bkMeas">Measure</label><select id="bkMeas"><option value="a">Amount (Rs)</option><option value="q">Quantity (shares)</option><option value="n">Number of trades</option></select></div>
+      <div class="f"><label for="bkTop">Brokers / stocks shown</label><select id="bkTop">${[8, 12, 16, 20, 30].map(n => `<option ${n === BK.topN ? 'selected' : ''}>${n}</option>`).join('')}</select></div></div><span id="bkMsg"></span></div>
+    <div id="bkOut" style="display:grid;gap:18px"></div>`;
+  $('#bkMode').value = BK.mode; $('#bkMeas').value = BK.measure;
+  const go = async () => { msg('#bkMsg', 'Loading…'); let T0; try { T0 = await bkLoad(idx.filter(x => BK.dates.includes(x.date))); } catch (e) { return msg('#bkMsg', e.message, 'err'); } { const m = $('#bkMsg'); m.textContent = ''; m.className = ''; }
+    const syms = uniq(T0.map(t => t.sym)).sort(), sel = $('#bkSym'); sel.innerHTML = `<option value="">All stocks (${syms.length})</option>` + syms.map(s => `<option ${s === BK.sym ? 'selected' : ''}>${esc(s)}</option>`).join(''); if (BK.sym && !syms.includes(BK.sym)) BK.sym = '';
+    bkDraw(T0.filter(t => !BK.sym || t.sym === BK.sym)); };
+  $('#bkDates').onchange = () => { BK.dates = [...$('#bkDates').querySelectorAll('input:checked')].map(x => x.value); if (!BK.dates.length) BK.dates = [dates[0]]; BK.hi = null; go(); };
+  $('#bkSym').onchange = e => { BK.sym = e.target.value; BK.hi = null; go(); };
+  $('#bkMode').onchange = e => { BK.mode = e.target.value; BK.hi = null; go(); }; $('#bkMeas').onchange = e => { BK.measure = e.target.value; go(); }; $('#bkTop').onchange = e => { BK.topN = +e.target.value; go(); };
+  go();
+}
+function bkDraw(T) {
+  const out = $('#bkOut'), t = T_(), S = bkStats(T), m = BK.measure, val = x => m === 'a' ? x.a : m === 'q' ? x.q : 1, vf = v => m === 'a' ? 'Rs ' + fmtBig(v) : fmt(v, 0) + (m === 'q' ? ' sh' : ' trades');
+  if (!T.length) { out.innerHTML = '<div class="card wide"><div class="empty">No trades for this selection.</div></div>'; return; }
+  const modes = {bs: [['Buyer broker', 'Seller broker'], x => ['B' + x.b, 'S' + x.s]], bys: [['Buyer broker', 'Stock', 'Seller broker'], x => ['B' + x.b, 'Y' + x.sym, 'S' + x.s]], yb: [['Stock', 'Buyer broker'], x => ['Y' + x.sym, 'B' + x.b]], ys: [['Seller broker', 'Stock'], x => ['S' + x.s, 'Y' + x.sym]]};
+  const [layers, pf] = modes[BK.mode], nm = id => id[0] === 'Y' ? id.slice(1) : bkName(id.slice(1)), paths = T.map(x => ({n: pf(x), v: val(x)}));
+  const topBuy = S.brokers.slice().sort((a, b) => b.ba - a.ba)[0], topSell = S.brokers.slice().sort((a, b) => b.sa - a.sa)[0], netTop = S.brokers.slice().sort((a, b) => Math.abs(b.net) - Math.abs(a.net)).slice(0, 15);
+  out.innerHTML = `<div class="kpis" style="margin:0">${[['Turnover', 'Rs ' + fmtBig(S.tot.a), `${fmt(S.tot.n, 0)} trades · ${fmt(S.tot.q, 0)} shares`], ['Brokers active', fmt(S.brokers.length, 0), `${fmt(S.pairs.length, 0)} buyer–seller pairs`], ['Top buyer', topBuy ? esc(bkName(topBuy.no)) : '–', topBuy ? (topBuy.ba / S.tot.a * 100).toFixed(1) + '% of buying' : ''], ['Top seller', topSell ? esc(bkName(topSell.no)) : '–', topSell ? (topSell.sa / S.tot.a * 100).toFixed(1) + '% of selling' : ''], ['Concentration (HHI)', `${fmt(S.hhiB, 0)} / ${fmt(S.hhiS, 0)}`, `buy / sell side · top-5 share ${(S.top5B * 100).toFixed(0)}% / ${(S.top5S * 100).toFixed(0)}%`], ['Same-broker trades', (S.crossed / S.tot.a * 100).toFixed(1) + '%', 'buyer and seller broker identical']].map(([l, v, d]) => `<div class="kpi"><div class="k">${l}</div><div class="v" style="font-size:19px">${v}</div><div class="d">${d}</div></div>`).join('')}</div>
+    <div class="card wide"><div class="chead"><div><h2>${esc(layers.join(' → '))}${BK.sym ? ' · ' + esc(BK.sym) : ''}</h2><p class="sub">Band width = ${m === 'a' ? 'amount traded' : m === 'q' ? 'shares traded' : 'number of trades'}; top ${BK.topN} per column, the rest grouped as “Others”. Hover for values; click a node to highlight it (click again to clear).</p></div></div><div id="bkSankey" class="sankeybox"></div><p class="src">Source: NEPSE floorsheet(s) ${esc(BK.dates.join(', '))}, published by the admin.</p></div>
+    <div class="grid2"><div class="card"><h2>Net position by broker</h2><p class="sub">Bought minus sold (Rs) — the 15 largest in either direction.</p><div class="cv tall"><canvas id="bkNet"></canvas></div></div>
+      <div class="card"><h2>Top buyer → seller pairs</h2><div class="tbl scroll" style="max-height:420px"><table><thead><tr><th class="txt">Buyer</th><th class="txt">Seller</th><th>Amount (Rs)</th><th>Shares</th><th>Trades</th><th>Share</th></tr></thead><tbody>${S.pairs.slice(0, 25).map(x => `<tr><td class="txt">${esc(bkName(x.b))}</td><td class="txt">${esc(bkName(x.s))}</td><td class="num">${fmt(x.a, 0)}</td><td class="num">${fmt(x.q, 0)}</td><td class="num">${fmt(x.n, 0)}</td><td class="num">${(x.a / S.tot.a * 100).toFixed(1)}%</td></tr>`).join('')}</tbody></table></div></div></div>
+    <div class="card wide"><h2>Brokers</h2><div class="tbl scroll" style="max-height:480px"><table><thead><tr><th class="txt">Broker</th><th>Bought (Rs)</th><th>Sold (Rs)</th><th>Net (Rs)</th><th>Net shares</th><th>Avg buy rate</th><th>Avg sell rate</th><th>Trades</th><th>Market share</th></tr></thead><tbody>${S.brokers.map(x => `<tr><td class="txt">${esc(bkName(x.no))}</td><td class="num">${fmt(x.ba, 0)}</td><td class="num">${fmt(x.sa, 0)}</td><td class="num ${x.net < 0 ? 'neg' : ''}">${fmt(x.net, 0)}</td><td class="num ${x.netq < 0 ? 'neg' : ''}">${fmt(x.netq, 0)}</td><td class="num">${opFmt(x.avgB)}</td><td class="num">${opFmt(x.avgS)}</td><td class="num">${fmt(x.bn + x.sn, 0)}</td><td class="num">${(x.share * 100).toFixed(2)}%</td></tr>`).join('')}</tbody></table></div><p class="src">Market share = (bought + sold) / (2 × turnover). HHI on a 0–10,000 scale; above 1,500 is usually read as moderately concentrated.</p></div>
+    ${S.syms.length > 1 ? `<div class="card wide"><h2>Stocks</h2><div class="tbl scroll" style="max-height:420px"><table><thead><tr><th class="txt">Stock</th><th>Turnover (Rs)</th><th>Shares</th><th>Trades</th><th>VWAP</th><th class="txt">Top buyer (share)</th><th class="txt">Top seller (share)</th><th>Buy / sell brokers</th></tr></thead><tbody>${S.syms.slice(0, 80).map(y => `<tr><td class="txt"><a href="#" data-bksym="${esc(y.sym)}">${esc(y.sym)}</a></td><td class="num">${fmt(y.a, 0)}</td><td class="num">${fmt(y.q, 0)}</td><td class="num">${fmt(y.n, 0)}</td><td class="num">${opFmt(y.vwap)}</td><td class="txt">${esc(bkName(y.tb))} (${(y.tbs * 100).toFixed(0)}%)</td><td class="txt">${esc(bkName(y.ts))} (${(y.tss * 100).toFixed(0)}%)</td><td class="num">${y.nb} / ${y.ns}</td></tr>`).join('')}</tbody></table></div></div>` : ''}`;
+  const drawSk = () => sankeySvg($('#bkSankey'), paths, {layers, topN: BK.topN, valFmt: vf, names: layers.map(() => nm), hi: BK.hi, onNode: k => { BK.hi = BK.hi === k ? null : k; drawSk(); }});
+  drawSk();
+  mk('bkNet', {type: 'bar', data: {labels: netTop.map(x => bkName(x.no)), datasets: [{label: 'Net (Rs)', data: netTop.map(x => x.net), backgroundColor: netTop.map(x => x.net >= 0 ? t.good : t.crit)}]}, options: {indexAxis: 'y', plugins: {legend: {display: false}}, scales: {x: {}, y: {ticks: {autoSkip: false}}}}});
+  out.querySelectorAll('[data-bksym]').forEach(a => a.onclick = e => { e.preventDefault(); BK.sym = a.dataset.bksym; $('#bkSym').value = BK.sym; BK.hi = null; $('#bkSym').dispatchEvent(new Event('change')); });
+}
+const fmtBig = v => !isNum(v) ? '–' : Math.abs(v) >= 1e9 ? (v / 1e9).toFixed(2) + ' bn' : Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(2) + ' mn' : fmt(v, 0), opFmt = v => isNum(v) ? fmt(v, 2) : '–';

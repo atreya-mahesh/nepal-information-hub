@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chart · Nepal Information Hub</title>
+<script>try{const m=localStorage.getItem('nmm-theme');if(m&&m!=='system')document.documentElement.setAttribute('data-theme',m);const a=localStorage.getItem('nmm-accent');if(a&&a!=='crimson')document.documentElement.setAttribute('data-accent',a);}catch(e){}</script>
+<link rel="stylesheet" href="assets/app.css">
+<link rel="stylesheet" href="assets/chart.css">
+</head>
+<body class="chartpage">
+<header class="cx-top">
+  <a class="cx-home" href="index.html#stk-ta" title="Back to the dashboard">NIH</a>
+  <button class="cx-sym" id="cxSym" title="Change symbol (or just start typing)"><b id="cxSymTxt">—</b><span>▾</span></button>
+  <div class="cx-seg" id="cxTf" role="group" aria-label="Interval"><button data-v="D">1D</button><button data-v="W">1W</button><button data-v="M">1M</button></div>
+  <select id="cxType" aria-label="Chart type">
+    <option value="candle">Candles</option><option value="hollow">Hollow candles</option><option value="bar">Bars (OHLC)</option><option value="ha">Heikin Ashi</option>
+    <option value="line">Line</option><option value="area">Area</option><option value="baseline">Baseline</option><option value="step">Step line</option>
+  </select>
+  <button class="cx-btn" id="cxInd" title="Indicators (/)"><span class="ic">ƒx</span> Indicators</button>
+  <button class="cx-btn" id="cxTpl" title="Indicator templates">Templates ▾</button>
+  <button class="cx-btn" id="cxCmp" title="Compare with another symbol">＋ Compare</button>
+  <span class="cx-sp"></span>
+  <button class="cx-btn" id="cxUndo" title="Undo last drawing (Ctrl+Z)">↶</button>
+  <button class="cx-btn" id="cxShot" title="Save chart as PNG">⤓ Snapshot</button>
+  <button class="cx-btn" id="cxTheme" title="Light / dark">Theme</button>
+  <button class="cx-btn" id="cxFull" title="Full screen">Full screen</button>
+</header>
+<div class="cx-main">
+  <aside class="cx-tools" id="cxTools" aria-label="Drawing tools">
+    <button data-t="cursor" title="Cursor (Esc)" aria-pressed="true">⌖</button>
+    <button data-t="trend" title="Trend line">╱</button>
+    <button data-t="ray" title="Ray (extended line)">⟋</button>
+    <button data-t="hline" title="Horizontal line">─</button>
+    <button data-t="vline" title="Vertical line">│</button>
+    <button data-t="channel" title="Parallel channel (3 clicks)">⫽</button>
+    <button data-t="rect" title="Rectangle">▭</button>
+    <button data-t="fib" title="Fibonacci retracement">≣</button>
+    <button data-t="measure" title="Measure: price / % / bars">⇲</button>
+    <button data-t="long" title="Long position (entry → target, stop below)">▲</button>
+    <button data-t="short" title="Short position">▼</button>
+    <button data-t="text" title="Text note">T</button>
+    <hr>
+    <button data-t="erase" title="Eraser: click a drawing to delete it">⌫</button>
+    <button id="cxClear" title="Remove all drawings on this symbol">🗑</button>
+    <button id="cxMagnet" title="Magnet: snap to open/high/low/close" aria-pressed="true">🧲</button>
+  </aside>
+  <section class="cx-chartwrap">
+    <div id="cxChart" class="cx-chart"></div>
+    <svg id="cxDraw" class="cx-draw"></svg>
+    <div id="cxLegends"></div>
+    <div class="cx-range">
+      <div class="cx-seg" id="cxRange"><button data-v="1M">1M</button><button data-v="3M">3M</button><button data-v="6M">6M</button><button data-v="YTD">YTD</button><button data-v="1Y">1Y</button><button data-v="3Y">3Y</button><button data-v="All">All</button></div>
+      <span class="cx-sp"></span>
+      <span id="cxRangeInfo" class="cx-dim"></span>
+      <a class="cx-dim" href="https://www.maddatitech.com.np/" target="_blank" rel="noopener" style="text-decoration:none">© Maddati Tech Pvt. Ltd.</a>
+      <div class="cx-seg" id="cxScale"><button data-v="pct" title="Percent scale">%</button><button data-v="log" title="Logarithmic scale">log</button><button data-v="auto" title="Auto-fit">auto</button></div>
+    </div>
+    <div id="cxEmpty" class="cx-empty" hidden></div>
+  </section>
+  <aside class="cx-side">
+    <div class="cx-tabs" role="tablist"><button data-p="info" aria-selected="true">Overview</button><button data-p="tech">Technicals</button><button data-p="watch">Watchlist</button></div>
+    <div class="cx-pane" id="sp-info"></div>
+    <div class="cx-pane" id="sp-tech" hidden></div>
+    <div class="cx-pane" id="sp-watch" hidden></div>
+  </aside>
+</div>
+<div class="cx-modal" id="cxModal" hidden><div class="cx-dlg" role="dialog" aria-modal="true"><div class="cx-dlghead"><b id="cxDlgTitle"></b><button class="cx-x" id="cxDlgX" aria-label="Close">×</button></div><div id="cxDlgBody"></div></div></div>
+<div class="cx-toast" id="cxToast" hidden></div>
+<script src="data/seed.js"></script>
+<script src="assets/lightweight-charts.standalone.production.js"></script>
+<script src="assets/ta-core.js"></script>
+<script src="assets/chart.js"></script>
+</body>
+</html>
